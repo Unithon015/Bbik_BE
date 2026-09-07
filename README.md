@@ -3,6 +3,25 @@
 FastAPI 기반 콘텐츠 사전 모니터링 API입니다. AI가 게시 가능 여부를 판정하지 않고,
 사람이 다시 확인할 후보와 근거를 Human Review Queue로 정리합니다.
 
+## 인증 및 계정 관리
+
+Google OAuth와 이메일·비밀번호 로그인을 지원합니다. Access Token은 짧게 유지하고,
+서버에서 취소 가능한 Refresh Token 세션을 `HttpOnly` 쿠키로 제공합니다.
+
+| Endpoint | 설명 |
+| --- | --- |
+| `POST /auth/signup` | 이메일·비밀번호 회원가입 |
+| `POST /auth/login` | 이메일·비밀번호 로그인 |
+| `POST /auth/refresh` | Access Token 갱신 및 Refresh Token 회전 |
+| `POST /auth/logout` | 현재 로그인 세션 취소 |
+| `POST /auth/password/forgot` | 비밀번호 재설정 이메일 요청 |
+| `POST /auth/password/reset` | 일회용 토큰으로 새 비밀번호 저장 |
+| `GET /auth/google/login` | Google OAuth 시작 |
+| `GET /users/me` | 내 계정 정보 조회 |
+| `DELETE /users/me` | 계정과 소유 콘텐츠 삭제 |
+
+프론트엔드 요청·응답과 쿠키 계약은 [`AUTH_API.md`](AUTH_API.md)를 참고하세요.
+
 ## 콘텐츠 검수 API
 
 `POST /contents`는 `multipart/form-data`를 받습니다. `text`, `files`는 함께 또는 각각

@@ -1,5 +1,5 @@
 from uuid import UUID
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.domain.user.entity import User
 from src.domain.user.repository import UserRepository
@@ -38,7 +38,9 @@ class PostgresUserRepository(UserRepository):
         return self._to_entity(model) if model else None
 
     async def find_by_email(self, email: str) -> User | None:
-        result = await self._session.execute(select(UserModel).where(UserModel.email == email))
+        result = await self._session.execute(
+            select(UserModel).where(func.lower(UserModel.email) == email.strip().lower())
+        )
         model = result.scalar_one_or_none()
         return self._to_entity(model) if model else None
 
