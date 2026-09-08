@@ -7,6 +7,7 @@ from src.domain.content.entity import AssetType
 from src.infrastructure.audience_profile.pg_repository import PostgresAudienceProfileRepository
 from src.infrastructure.content.pg_repository import PostgresContentSubmissionRepository
 from src.infrastructure.openai.analyzer import analyze_general, analyze_references
+from src.infrastructure.policy_catalog.vector import enrich_incident_context
 from src.infrastructure.policy_catalog.context import (
     PolicyPromptContext,
     search_relevant_reference_context,
@@ -64,6 +65,18 @@ async def run_analysis(
                     _profile_policy_context(review_context),
                     matched_policy_context,
                 )
+                keyword_incidents = incident_context
+                try:
+                    incident_context = await enrich_incident_context(
+                        db,
+                        keyword_incidents,
+                        search_summary=general_result.search_summary,
+                        search_terms=general_result.search_terms,
+                        original_text=submission.caption_text,
+                        api_key=api_key,
+                    )
+                except Exception:
+                    incident_context = keyword_incidents
                 if policy_context or incident_context:
                     await service.report_progress(
                         submission_id,

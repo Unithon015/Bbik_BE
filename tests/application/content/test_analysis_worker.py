@@ -131,6 +131,21 @@ class ContextWorkerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(service.complete.await_args.kwargs["findings"], [self.general_finding])
         service.fail.assert_not_awaited()
 
+    async def test_vector_failure_keeps_keyword_incident_for_context_review(self) -> None:
+        with patch(
+            "src.application.content.analysis_worker.enrich_incident_context",
+            new=AsyncMock(side_effect=RuntimeError("vector unavailable")),
+        ) as enrich:
+            service, _, context = await self._run_worker(
+                search_result=([], [self.incident]),
+                context_result=[self.general_finding],
+            )
+
+        enrich.assert_awaited_once()
+        context.assert_awaited_once()
+        self.assertEqual(context.await_args.kwargs["incident_context"], [self.incident])
+        self.assertEqual(service.complete.await_args.kwargs["findings"], [self.general_finding])
+        service.fail.assert_not_awaited()
     async def test_marks_analysis_failed_when_general_review_fails(self) -> None:
         service, search, context = await self._run_worker(general_error=RuntimeError("general unavailable"))
 
