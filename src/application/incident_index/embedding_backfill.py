@@ -98,14 +98,15 @@ async def backfill_missing_incident_embeddings(
 ) -> int:
     if batch_size <= 0:
         raise ValueError("batch_size must be positive")
-    resolved_api_key = api_key if api_key is not None else config.OPEN_API_KEY
-    if not resolved_api_key:
-        raise RuntimeError("OPEN_API_KEY must be configured for embedding backfill")
 
     engine = build_engine()
     try:
         if not await asyncio.to_thread(_schema_ready, engine):
             return 0
+
+        resolved_api_key = api_key if api_key is not None else config.OPEN_API_KEY
+        if not resolved_api_key:
+            raise RuntimeError("OPEN_API_KEY must be configured for embedding backfill")
 
         updated = 0
         while True:
