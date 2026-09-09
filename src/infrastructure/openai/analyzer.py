@@ -123,29 +123,34 @@ async def analyze_references(
     text: str | None = None,
     images: list[tuple[bytes, str]] | None = None,
     api_key: str,
+    provisional_findings: list[ReviewFinding],
     policy_context: list[PolicyPromptContext],
     incident_context: list[IncidentPromptContext],
     audience_profile: AudienceProfile | None = None,
     review_context: ReviewContext | None = None,
 ) -> list[ReviewFinding]:
     if not policy_context and not incident_context:
-        return []
+        return list(provisional_findings)
     raw = await _request_json(
         text=text,
         images=images or [],
         api_key=api_key,
         system_prompt=_with_audience_context(
-            _build_reference_system_prompt(policy_context, incident_context),
+            _build_reference_system_prompt(
+                policy_context,
+                incident_context,
+                provisional_findings,
+            ),
             audience_profile,
             review_context,
         ),
     )
-    return _validate_reference_findings(
-        _parse(raw.get("findings", [])),
+    return _merge_context_review(
+        raw,
+        provisional_findings,
         policy_context,
         incident_context,
     )
-
 
 async def _request_json(
     *,
@@ -171,6 +176,7 @@ async def _request_json(
 def _build_reference_system_prompt(
     policy_context: list[PolicyPromptContext],
     incident_context: list[IncidentPromptContext],
+    provisional_findings: list[ReviewFinding],
 ) -> str:
     rows: list[str] = []
     for policy in policy_context:
@@ -189,42 +195,81 @@ def _build_reference_system_prompt(
             f"  연도: {incident.year}; 위험 분류: {categories}"
         )
 
+    provisional_rows = [
+        f'[{index}] {finding.category_code} | {finding.priority.value} | "{finding.signal_type}"\n'
+        f"  이유: {finding.reason}\n"
+        f"  발췌: {finding.excerpt or '없음'}"
+        for index, finding in enumerate(provisional_findings)
+    ]
+
     return f"""{_COMMON_PROMPT}
 
-이 단계는 1차 일반 검수에서 후보가 없었을 때만 실행하는 DB 근거 대조 검수입니다.
-아래 제공된 후보와 콘텐츠가 직접 관련되는지 다시 판단하세요.
-- 제목이나 키워드가 우연히 같다는 이유만으로 후보화하지 마세요.
-- 문맥상 실제 검토 필요성이 있을 때만 findings를 반환하세요.
-- evidences에는 아래 행 중 직접 관련된 근거만 최대 3개 넣으세요.
+이 단계는 1차 일반 검수 후보와 DB 근거를 함께 대조하는 Context Review입니다.
+아래 일반 검수 후보는 기본적으로 보존해야 합니다. 각 후보를 실제 맥락에 따라 KEEP, REVISE, DROP 중 하나로만 명시적으로 판단하세요.
+- KEEP: 기존 후보를 그대로 유지합니다.
+- REVISE: finding_index의 후보를 finding 객체로 교체합니다.
+- DROP: DB 근거와 콘텐츠 맥락상 사람이 검토할 필요가 없을 때만 제거합니다.
+- ADD: 일반 검수에 없고 아래 DB 후보와 콘텐츠가 직접 관련된 새 검수 후보만 new_findings에 추가합니다.
+- 제목이나 키워드가 우연히 같다는 이유만으로 REVISE, DROP, ADD하지 마세요.
+- DB 근거가 없거나 판단이 불확실하면 기존 후보는 KEEP하세요.
+- evidences에는 아래 DB 후보 중 직접 관련된 근거만 최대 3개 넣으세요.
 - layer, title, source_url, provider는 아래 값을 그대로 복사하세요.
 - 제공되지 않은 정책, 사건, URL을 새로 만들지 마세요.
+
+일반 검수 후보:
+{chr(10).join(provisional_rows) or '(없음)'}
 
 DB 후보:
 {chr(10).join(rows)}
 
 다음 JSON 형식으로만 응답하세요:
 {{
-  "findings": [
+  "reviews": [
+    {{
+      "finding_index": 0,
+      "action": "KEEP",
+      "reason": "기존 후보를 유지하는 이유"
+    }},
+    {{
+      "finding_index": 1,
+      "action": "REVISE",
+      "reason": "맥락 반영 이유",
+      "finding": {{
+        "type": ["text"],
+        "category_code": "R-04",
+        "priority": "LOW",
+        "signal_type": "맥락 반영 표현",
+        "reason": "검토가 필요한 이유",
+        "excerpt": "문제가 되는 원문 인용 또는 이미지 묘사",
+        "evidences": []
+      }}
+    }},
+    {{
+      "finding_index": 2,
+      "action": "DROP",
+      "reason": "제거 이유"
+    }}
+  ],
+  "new_findings": [
     {{
       "type": ["text"],
       "category_code": "R-06",
       "priority": "MEDIUM",
-      "signal_type": "과거 사건 관련 표현",
+      "signal_type": "사건 맥락",
       "reason": "DB 근거와 대조해 검토가 필요한 이유",
       "excerpt": "문제가 되는 원문 인용 또는 이미지 묘사",
       "evidences": [
         {{
-          "layer": "RULE",
+          "layer": "MEMORY",
           "title": "위 후보에 적힌 정확한 제목",
           "source_url": "위 후보에 적힌 정확한 URL",
-          "provider": "META_COMMUNITY_STANDARDS",
+          "provider": "NAMU_WIKI",
           "excerpt": "관련 근거 요약"
         }}
       ]
     }}
   ]
 }}"""
-
 
 def _audience_context_prompt(profile: AudienceProfile) -> str:
     return """Account review context (configured once by the account owner):
@@ -273,11 +318,55 @@ def _build_user_content(text: str | None, images: list[tuple[bytes, str]]) -> li
     return parts
 
 
-def _validate_reference_findings(
-    findings: list[ReviewFinding],
+def _merge_context_review(
+    raw: dict,
+    provisional_findings: list[ReviewFinding],
     policy_context: list[PolicyPromptContext],
     incident_context: list[IncidentPromptContext],
 ) -> list[ReviewFinding]:
+    allowed = _allowed_evidence_keys(policy_context, incident_context)
+    reviewed_findings: list[ReviewFinding | None] = list(provisional_findings)
+    reviewed_indexes: set[int] = set()
+
+    for review in raw.get("reviews", []):
+        if not isinstance(review, dict):
+            continue
+        index = review.get("finding_index")
+        action = str(review.get("action") or "").strip().upper()
+        if (
+            not isinstance(index, int)
+            or isinstance(index, bool)
+            or index < 0
+            or index >= len(reviewed_findings)
+            or index in reviewed_indexes
+            or action not in {"KEEP", "REVISE", "DROP"}
+        ):
+            continue
+        if action == "REVISE":
+            replacement = review.get("finding")
+            if not isinstance(replacement, dict):
+                continue
+            parsed = _parse([replacement])
+            if not parsed:
+                continue
+            reviewed_findings[index] = _with_whitelisted_evidence(parsed[0], allowed)
+        elif action == "DROP":
+            reviewed_findings[index] = None
+        reviewed_indexes.add(index)
+
+    additions = []
+    for finding in _parse(raw.get("new_findings", [])):
+        validated = _with_whitelisted_evidence(finding, allowed)
+        if validated.evidences:
+            additions.append(validated)
+
+    return [finding for finding in reviewed_findings if finding is not None] + additions
+
+
+def _allowed_evidence_keys(
+    policy_context: list[PolicyPromptContext],
+    incident_context: list[IncidentPromptContext],
+) -> set[tuple[EvidenceLayer, str, str, str]]:
     allowed = {
         (EvidenceLayer.RULE, policy.title, policy.source_url, "META_COMMUNITY_STANDARDS")
         for policy in policy_context
@@ -286,17 +375,18 @@ def _validate_reference_findings(
         (EvidenceLayer.MEMORY, incident.title, incident.source_url, incident.source_type)
         for incident in incident_context
     )
+    return allowed
 
-    validated = []
-    for finding in findings:
-        evidences = [
-            evidence for evidence in finding.evidences
-            if (evidence.layer, evidence.title, evidence.source_url, evidence.provider) in allowed
-        ][:3]
-        if evidences:
-            validated.append(replace(finding, evidences=evidences))
-    return validated
 
+def _with_whitelisted_evidence(
+    finding: ReviewFinding,
+    allowed: set[tuple[EvidenceLayer, str, str, str]],
+) -> ReviewFinding:
+    evidences = [
+        evidence for evidence in finding.evidences
+        if (evidence.layer, evidence.title, evidence.source_url, evidence.provider) in allowed
+    ][:3]
+    return replace(finding, evidences=evidences)
 
 def _parse(items: list[dict]) -> list[ReviewFinding]:
     findings = []
