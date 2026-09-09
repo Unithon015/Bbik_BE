@@ -62,3 +62,16 @@ class IncidentEmbeddingBackfillTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(updated, 0)
         fetch_batch.assert_not_called()
         self.assertTrue(engine.disposed)
+
+    async def test_schema_absent_skips_before_requiring_openai_key(self):
+        engine = FakeEngine()
+
+        with (
+            patch.object(embedding_backfill.config, "OPEN_API_KEY", ""),
+            patch.object(embedding_backfill, "build_engine", return_value=engine),
+            patch.object(embedding_backfill, "_schema_ready", return_value=False),
+        ):
+            updated = await embedding_backfill.backfill_missing_incident_embeddings()
+
+        self.assertEqual(updated, 0)
+        self.assertTrue(engine.disposed)
