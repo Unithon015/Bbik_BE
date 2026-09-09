@@ -91,11 +91,11 @@ async def create_content(
 
 @router.get("/me", response_model=MySubmissionListResponse)
 async def list_my_contents(
-    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    page: Annotated[int | None, Query(ge=1)] = None,
     service: ContentSubmissionService = Depends(_service),
     owner_id: UUID = Depends(get_current_user_id),
 ):
-    submissions = await service.list_by_owner(owner_id, limit)
+    submissions = await service.list_by_owner(owner_id, limit=10, page=page or 1)
     items = []
     for submission in submissions:
         run = submission.latest_analysis
@@ -116,11 +116,11 @@ async def list_my_contents(
 
 @router.get("", response_model=RecentContentResponse)
 async def list_recent_contents(
-    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    page: Annotated[int | None, Query(ge=1)] = None,
     current_user_id: UUID = Depends(get_current_user_id),
     service: ContentSubmissionService = Depends(_service),
 ):
-    submissions = await service.list_by_owner(current_user_id, limit)
+    submissions = await service.list_by_owner(current_user_id, limit=10, page=page or 1)
     return RecentContentResponse(items=[_submission_response(submission) for submission in submissions])
 
 

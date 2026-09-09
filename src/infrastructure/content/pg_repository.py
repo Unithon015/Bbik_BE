@@ -76,12 +76,13 @@ class PostgresContentSubmissionRepository(ContentSubmissionRepository):
         )
         return [self._to_entity(model) for model in result.scalars().all()]
 
-    async def list_by_owner(self, owner_id: UUID, limit: int) -> list[ContentSubmission]:
+    async def list_by_owner(self, owner_id: UUID, limit: int, offset: int = 0) -> list[ContentSubmission]:
         result = await self._session.execute(
             self._base_query()
             .where(ContentSubmissionModel.owner_id == owner_id)
             .order_by(ContentSubmissionModel.created_at.desc())
             .limit(limit)
+            .offset(offset)
         )
         return [self._to_entity(model) for model in result.scalars().all()]
 
