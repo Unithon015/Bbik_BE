@@ -14,7 +14,6 @@ from src.application.incident_index.embedding_backfill import (
     DEFAULT_BATCH_SIZE,
     backfill_missing_incident_embeddings,
 )
-from src.infrastructure.persistence.database import build_engine
 
 BATCH_SIZE = DEFAULT_BATCH_SIZE
 
