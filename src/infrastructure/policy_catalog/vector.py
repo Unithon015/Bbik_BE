@@ -81,7 +81,7 @@ def merge_incident_context(
 ) -> list[IncidentPromptContext]:
     merged = []
     keys = set()
-    for incident in [*keyword_incidents, *vector_incidents]:
+    for incident in [*vector_incidents, *keyword_incidents]:
         key = incident.source_url or f"{incident.source_type}:{incident.year}:{incident.title}"
         if key not in keys:
             keys.add(key)

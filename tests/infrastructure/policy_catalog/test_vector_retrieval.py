@@ -15,10 +15,31 @@ class VectorMergeTest(unittest.TestCase):
     def entry(self, title, url):
         return IncidentPromptContext(title=title, year=2026, source_url=url, source_type="NAMU_WIKI", risk_categories=())
 
-    def test_keyword_priority_dedupes_by_source_url_and_limits_to_five(self):
+    def test_vector_results_precede_keyword_results(self):
+        keyword = [self.entry("A", "a"), self.entry("B", "b"), self.entry("C", "c")]
+        vector = [self.entry("D", "d")]
+
+        self.assertEqual([item.title for item in merge_incident_context(keyword, vector)], ["D", "A", "B", "C"])
+
+    def test_keyword_order_is_preserved_when_vector_results_are_empty(self):
+        keyword = [self.entry("A", "a"), self.entry("B", "b")]
+
+        self.assertEqual([item.title for item in merge_incident_context(keyword, [])], ["A", "B"])
+
+    def test_vector_priority_dedupes_by_source_url(self):
         keyword = [self.entry("A", "a"), self.entry("B", "b"), self.entry("C", "c")]
         vector = [self.entry("B2", "b"), self.entry("D", "d"), self.entry("E", "e")]
-        self.assertEqual([item.title for item in merge_incident_context(keyword, vector)], ["A", "B", "C", "D", "E"])
+
+        merged = merge_incident_context(keyword, vector)
+
+        self.assertEqual([item.title for item in merged], ["B2", "D", "E", "A", "C"])
+        self.assertEqual([item.source_url for item in merged].count("b"), 1)
+
+    def test_vector_priority_limits_results_to_five(self):
+        keyword = [self.entry("A", "a"), self.entry("B", "b"), self.entry("C", "c")]
+        vector = [self.entry("D", "d"), self.entry("E", "e"), self.entry("F", "f")]
+
+        self.assertEqual([item.title for item in merge_incident_context(keyword, vector)], ["D", "E", "F", "A", "B"])
 
 
 class VectorReadinessTest(unittest.IsolatedAsyncioTestCase):
@@ -74,7 +95,7 @@ class VectorReadinessTest(unittest.IsolatedAsyncioTestCase):
             result = await enrich_incident_context(object(), keyword, search_summary="summary", search_terms=(), original_text=None, api_key="key")
         self.assertEqual(result, keyword)
 
-    async def test_vector_results_are_added_after_keyword_results(self):
+    async def test_vector_results_precede_keyword_results(self):
         keyword = [IncidentPromptContext("A", 2026, "a", "NAMU_WIKI", ())]
         vector = [IncidentPromptContext("B", 2026, "b", "NAMU_WIKI", ())]
         with (
@@ -83,7 +104,7 @@ class VectorReadinessTest(unittest.IsolatedAsyncioTestCase):
             patch("src.infrastructure.policy_catalog.vector.search_semantic_incidents", new=AsyncMock(return_value=vector)),
         ):
             result = await enrich_incident_context(object(), keyword, search_summary="summary", search_terms=(), original_text=None, api_key="key")
-        self.assertEqual(result, keyword + vector)
+        self.assertEqual(result, vector + keyword)
 
     async def test_semantic_sql_requires_current_model_non_null_embedding_and_threshold(self):
         class Result:
