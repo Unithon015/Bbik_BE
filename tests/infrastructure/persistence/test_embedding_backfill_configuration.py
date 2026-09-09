@@ -1,7 +1,7 @@
 import importlib.util
 from pathlib import Path
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from src import config
 
@@ -22,9 +22,24 @@ class BackfillConfigurationTest(unittest.TestCase):
         module = load_backfill_module()
         self.assertIs(module.config, config)
 
-    def test_empty_application_key_stops_before_database_or_openai_work(self):
+    def test_empty_application_key_stops_before_backfill_work(self):
         module = load_backfill_module()
-        with patch.object(module.config, "OPEN_API_KEY", ""), patch.object(module, "build_engine") as build_engine:
+        with (
+            patch.object(module.config, "OPEN_API_KEY", ""),
+            patch.object(module, "backfill_missing_incident_embeddings", new=AsyncMock()) as backfill,
+        ):
             with self.assertRaisesRegex(RuntimeError, "OPEN_API_KEY"):
                 module.backfill_missing_embeddings()
-        build_engine.assert_not_called()
+        backfill.assert_not_called()
+
+    def test_sync_wrapper_delegates_to_async_backfill_service(self):
+        module = load_backfill_module()
+        with patch.object(
+            module,
+            "backfill_missing_incident_embeddings",
+            new=AsyncMock(return_value=7),
+        ) as backfill:
+            updated = module.backfill_missing_embeddings(batch_size=32)
+
+        self.assertEqual(updated, 7)
+        backfill.assert_awaited_once_with(batch_size=32, api_key=config.OPEN_API_KEY)
