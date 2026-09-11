@@ -7,6 +7,7 @@ from src.domain.content.entity import AssetType
 from src.infrastructure.audience_profile.pg_repository import PostgresAudienceProfileRepository
 from src.infrastructure.content.pg_repository import PostgresContentSubmissionRepository
 from src.infrastructure.openai.analyzer import analyze_general, analyze_references
+from src.infrastructure.policy_catalog.vector import enrich_incident_context
 from src.infrastructure.policy_catalog.context import (
     PolicyPromptContext,
     search_relevant_reference_context,
@@ -47,51 +48,54 @@ async def run_analysis(
             )
             if general_result.title:
                 await repo.update_title(submission_id, general_result.title)
-            if general_result.findings:
-                await service.complete(
+            findings = list(general_result.findings)
+            try:
+                await service.report_progress(
                     submission_id,
-                    findings=general_result.findings,
-                    review_context_snapshot=audit_snapshot,
+                    step="REFERENCE_SEARCH",
+                    progress_percent=55,
                 )
-                return
-
-            await service.report_progress(
-                submission_id,
-                step="REFERENCE_SEARCH",
-                progress_percent=55,
-            )
-            query_text = general_result.retrieval_query(submission.caption_text)
-            matched_policy_context, _ = await search_relevant_reference_context(
-                db,
-                query_text,
-                incident_limit=0,
-            )
-            policy_context = _merge_policy_context(
-                _profile_policy_context(review_context),
-                matched_policy_context,
-            )
-            if not policy_context:
-                await service.complete(
-                    submission_id,
-                    findings=[],
-                    review_context_snapshot=audit_snapshot,
+                query_text = general_result.retrieval_query(submission.caption_text)
+                matched_policy_context, incident_context = await search_relevant_reference_context(
+                    db,
+                    query_text,
+                    incident_limit=3,
                 )
-                return
+                policy_context = _merge_policy_context(
+                    _profile_policy_context(review_context),
+                    matched_policy_context,
+                )
+                keyword_incidents = incident_context
+                try:
+                    incident_context = await enrich_incident_context(
+                        db,
+                        keyword_incidents,
+                        search_summary=general_result.search_summary,
+                        search_terms=general_result.search_terms,
+                        original_text=submission.caption_text,
+                        api_key=api_key,
+                    )
+                except Exception:
+                    incident_context = keyword_incidents
+                if policy_context or incident_context:
+                    await service.report_progress(
+                        submission_id,
+                        step="REFERENCE_REVIEW",
+                        progress_percent=75,
+                    )
+                    findings = await analyze_references(
+                        text=submission.caption_text or None,
+                        images=images if images else None,
+                        api_key=api_key,
+                        provisional_findings=general_result.findings,
+                        policy_context=policy_context,
+                        incident_context=incident_context,
+                        audience_profile=audience_profile,
+                        review_context=review_context,
+                    )
+            except Exception:
+                findings = list(general_result.findings)
 
-            await service.report_progress(
-                submission_id,
-                step="REFERENCE_REVIEW",
-                progress_percent=75,
-            )
-            findings = await analyze_references(
-                text=submission.caption_text or None,
-                images=images if images else None,
-                api_key=api_key,
-                policy_context=policy_context,
-                incident_context=[],
-                audience_profile=audience_profile,
-                review_context=review_context,
-            )
             await service.complete(
                 submission_id,
                 findings=findings,

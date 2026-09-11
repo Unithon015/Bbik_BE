@@ -10,6 +10,7 @@ from apscheduler.triggers.cron import CronTrigger
 from src.infrastructure.persistence.database import build_session_factory
 from src.domain.incident_index.entity import IncidentSyncSummary
 
+from .embedding_backfill import backfill_missing_incident_embeddings
 from .service import SyncNamuWikiIncidentIndexService
 
 SEOUL = ZoneInfo("Asia/Seoul")
@@ -42,6 +43,7 @@ def build_daily_2026_scheduler(
 
     async def sync_current_year() -> None:
         await factory().sync_years([2026])
+        await backfill_missing_incident_embeddings()
 
     scheduler.add_job(
         sync_current_year,

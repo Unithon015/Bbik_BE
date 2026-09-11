@@ -102,8 +102,10 @@ class ContentSubmissionService:
     async def list_recent(self, limit: int = 20) -> list[ContentSubmission]:
         return await self._repository.list_recent(min(max(limit, 1), 50))
 
-    async def list_by_owner(self, owner_id: UUID, limit: int = 20) -> list[ContentSubmission]:
-        return await self._repository.list_by_owner(owner_id, min(max(limit, 1), 50))
+    async def list_by_owner(self, owner_id: UUID, limit: int = 10, page: int = 1) -> list[ContentSubmission]:
+        safe_limit = min(max(limit, 1), 50)
+        offset = (max(page, 1) - 1) * safe_limit
+        return await self._repository.list_by_owner(owner_id, safe_limit, offset)
 
     async def update_finding_status(
         self, submission_id: UUID, finding_id: UUID, status: FindingStatus
