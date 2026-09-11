@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import ARRAY, JSON, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import ARRAY, JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .base import Base
 
@@ -19,6 +19,74 @@ class UserModel(Base):
     audience_profile: Mapped["AudienceProfileModel | None"] = relationship(
         back_populates="user", cascade="all, delete-orphan", uselist=False
     )
+    auth_identities: Mapped[list["AuthIdentityModel"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    auth_sessions: Mapped[list["AuthSessionModel"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    account_tokens: Mapped[list["AccountTokenModel"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+
+
+class AuthIdentityModel(Base):
+    __tablename__ = "auth_identities"
+    __table_args__ = (
+        UniqueConstraint("provider", "provider_subject", name="uq_auth_identity_provider_subject"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    provider_subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    password_hash: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+    user: Mapped[UserModel] = relationship(back_populates="auth_identities")
+
+
+class AuthSessionModel(Base):
+    __tablename__ = "auth_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    refresh_token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+    user: Mapped[UserModel] = relationship(back_populates="auth_sessions")
+
+
+class AccountTokenModel(Base):
+    __tablename__ = "account_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    purpose: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+    user: Mapped[UserModel] = relationship(back_populates="account_tokens")
 
 
 class AudienceProfileModel(Base):

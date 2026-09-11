@@ -49,8 +49,11 @@ jobs:
             echo "GOOGLE_REDIRECT_URI=https://bbik.cloud/auth/google/callback" >> /app/.env
             echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> /app/.env
             echo "ENVIRONMENT=production" >> /app/.env
-            echo "FRONTEND_URL=https://main.bbik.cloud/onboarding" >> /app/.env
+            echo "FRONTEND_URL=https://main.bbik.cloud" >> /app/.env
             echo "CORS_ALLOW_ORIGINS=https://main.bbik.cloud" >> /app/.env
+            echo "GOOGLE_AUTH_SUCCESS_URL=https://main.bbik.cloud/auth/callback" >> /app/.env
+            echo "PASSWORD_RESET_URL=https://main.bbik.cloud/reset-password" >> /app/.env
+            echo "EMAIL_FROM=${{ secrets.EMAIL_FROM }}" >> /app/.env
             echo "OPEN_API_KEY=${{ secrets.OPEN_API_KEY }}" >> /app/.env
             echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}" >> /app/.env
             echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> /app/.env

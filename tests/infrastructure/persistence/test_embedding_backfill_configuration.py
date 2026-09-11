@@ -34,12 +34,15 @@ class BackfillConfigurationTest(unittest.TestCase):
 
     def test_sync_wrapper_delegates_to_async_backfill_service(self):
         module = load_backfill_module()
-        with patch.object(
-            module,
-            "backfill_missing_incident_embeddings",
-            new=AsyncMock(return_value=7),
-        ) as backfill:
+        with (
+            patch.object(module.config, "OPEN_API_KEY", "test-key"),
+            patch.object(
+                module,
+                "backfill_missing_incident_embeddings",
+                new=AsyncMock(return_value=7),
+            ) as backfill,
+        ):
             updated = module.backfill_missing_embeddings(batch_size=32)
 
         self.assertEqual(updated, 7)
-        backfill.assert_awaited_once_with(batch_size=32, api_key=config.OPEN_API_KEY)
+        backfill.assert_awaited_once_with(batch_size=32, api_key="test-key")
