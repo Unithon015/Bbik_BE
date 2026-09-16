@@ -167,6 +167,7 @@ class PostgresContentSubmissionRepository(ContentSubmissionRepository):
                 start_ms=finding.start_ms,
                 end_ms=finding.end_ms,
                 media_types=finding.media_types,
+                confidence_score=finding.confidence_score,
                 created_at=finding.created_at,
             )
         )
@@ -234,6 +235,7 @@ class PostgresContentSubmissionRepository(ContentSubmissionRepository):
                         start_ms=finding.start_ms,
                         end_ms=finding.end_ms,
                         media_types=finding.media_types or [],
+                        confidence_score=finding.confidence_score,
                         created_at=finding.created_at,
                         evidences=[
                             FindingEvidence(

@@ -1,6 +1,9 @@
+import time
 from uuid import UUID
 
 from src.application.content.analysis_service import ContentAnalysisService
+from src.application.content.preprocessor import extract_image_pii, preprocess_text
+from src.application.content.risk_scorer import RECHECK_THRESHOLD, score_findings, split_by_confidence
 from src.application.content.service import ContentStorage
 from src.application.content.review_context import ReviewContext, snapshot_for_audit
 from src.domain.content.entity import AssetType
@@ -26,10 +29,15 @@ async def run_analysis(
     async with AsyncSessionLocal() as db:
         repo = PostgresContentSubmissionRepository(db)
         service = ContentAnalysisService(repo)
+        t_start = time.monotonic()
         try:
-            await service.start(submission_id, step="GENERAL_REVIEW")
+            await service.start(submission_id, step="PREPROCESSING")
             submission = await repo.find_by_id(submission_id)
             assert submission
+
+            # ① 자체 전처리: PII 탐지·마스킹
+            preprocess_result = preprocess_text(submission.caption_text)
+            text_for_gpt = preprocess_result.masked_text.strip() or None
 
             images = await _read_images(submission.assets, storage)
             audience_profile = None
@@ -39,8 +47,13 @@ async def run_analysis(
                 )
             review_context = await DatabaseReviewContextResolver(db).resolve(audience_profile)
             audit_snapshot = snapshot_for_audit(audience_profile, review_context)
+
+            # ② GPT 정형 분석 (마스킹된 텍스트 사용)
+            await service.report_progress(submission_id, step="GENERAL_REVIEW", progress_percent=15)
+            t_preprocess_done = time.monotonic()
+
             general_result = await analyze_general(
-                text=submission.caption_text or None,
+                text=text_for_gpt,
                 images=images if images else None,
                 audience_profile=audience_profile,
                 review_context=review_context,
@@ -48,58 +61,99 @@ async def run_analysis(
             )
             if general_result.title:
                 await repo.update_title(submission_id, general_result.title)
-            findings = list(general_result.findings)
+            t_general_done = time.monotonic()
+
+            # 이미지 PII: GPT OCR 결과(search_terms, image excerpts)에 regex 재적용
+            image_pii_findings: list = []
+            if images:
+                image_excerpts = [
+                    f.excerpt for f in general_result.findings
+                    if "image" in (f.media_types or []) and f.excerpt
+                ]
+                image_pii_findings = extract_image_pii(
+                    general_result.search_summary,
+                    general_result.search_terms,
+                    image_excerpts,
+                )
+
+            # ④ 자체 위험도 산정
+            scored_gpt = score_findings(list(general_result.findings))
+            high_conf, low_conf = split_by_confidence(scored_gpt)
+            pii_findings = preprocess_result.pii_findings
+            t_scoring_done = time.monotonic()
+
+            # ③ pgvector 검색 + ⑤ 저신뢰 finding 재검증
+            ref_ms = 0
             try:
                 await service.report_progress(
-                    submission_id,
-                    step="REFERENCE_SEARCH",
-                    progress_percent=55,
+                    submission_id, step="REFERENCE_SEARCH", progress_percent=55
                 )
                 query_text = general_result.retrieval_query(submission.caption_text)
                 matched_policy_context, incident_context = await search_relevant_reference_context(
-                    db,
-                    query_text,
-                    incident_limit=3,
+                    db, query_text, incident_limit=3,
                 )
                 policy_context = _merge_policy_context(
-                    _profile_policy_context(review_context),
-                    matched_policy_context,
+                    _profile_policy_context(review_context), matched_policy_context
                 )
-                keyword_incidents = incident_context
                 try:
                     incident_context = await enrich_incident_context(
                         db,
-                        keyword_incidents,
+                        incident_context,
                         search_summary=general_result.search_summary,
                         search_terms=general_result.search_terms,
                         original_text=submission.caption_text,
                         api_key=api_key,
                     )
                 except Exception:
-                    incident_context = keyword_incidents
-                if policy_context or incident_context:
+                    pass
+
+                if scored_gpt and (policy_context or incident_context):
                     await service.report_progress(
-                        submission_id,
-                        step="REFERENCE_REVIEW",
-                        progress_percent=75,
+                        submission_id, step="REFERENCE_REVIEW", progress_percent=75
                     )
-                    findings = await analyze_references(
-                        text=submission.caption_text or None,
+                    t_ref_start = time.monotonic()
+                    refined_all = await analyze_references(
+                        text=text_for_gpt,
                         images=images if images else None,
                         api_key=api_key,
-                        provisional_findings=general_result.findings,
+                        provisional_findings=scored_gpt,
                         policy_context=policy_context,
                         incident_context=incident_context,
                         audience_profile=audience_profile,
                         review_context=review_context,
                     )
+                    ref_ms = int((time.monotonic() - t_ref_start) * 1000)
+                    high_conf, low_conf = split_by_confidence(refined_all)
             except Exception:
-                findings = list(general_result.findings)
+                pass
+
+            total_ms = int((time.monotonic() - t_start) * 1000)
+            findings = pii_findings + image_pii_findings + high_conf + low_conf
 
             await service.complete(
                 submission_id,
                 findings=findings,
-                review_context_snapshot=audit_snapshot,
+                review_context_snapshot={
+                    **audit_snapshot,
+                    "phase_timings_ms": {
+                        "preprocessing": preprocess_result.elapsed_ms,
+                        "general_review": int((t_general_done - t_preprocess_done) * 1000),
+                        "risk_scoring": int((t_scoring_done - t_general_done) * 1000),
+                        "reference_review": ref_ms,
+                        "total": total_ms,
+                    },
+                    "preprocessing": {
+                        "text_pii_counts": preprocess_result.pii_counts,
+                        "text_pii_total": sum(preprocess_result.pii_counts.values()),
+                        "image_pii_total": len(image_pii_findings),
+                    },
+                    "scoring": {
+                        "high_confidence": len(high_conf),
+                        "low_confidence": len(low_conf),
+                        "threshold": RECHECK_THRESHOLD,
+                        "pii_auto_detected": len(pii_findings) + len(image_pii_findings),
+                    },
+                },
             )
         except Exception as exc:
             await service.fail(submission_id, message=str(exc))
