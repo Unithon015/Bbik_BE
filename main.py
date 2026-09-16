@@ -68,7 +68,7 @@ async def lifespan(_: FastAPI):
         if scheduler is not None:
             scheduler.shutdown(wait=False)
 
-app = FastAPI(title="baekend", lifespan=lifespan)
+app = FastAPI(title="bbik-backend", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.CORS_ALLOW_ORIGINS,

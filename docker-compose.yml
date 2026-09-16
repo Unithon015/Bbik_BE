@@ -1,6 +1,6 @@
 services:
-  baekend:
-    image: ${DOCKER_IMAGE:-bbik-baekend:local}
+  bbik-backend:
+    image: ${DOCKER_IMAGE:-bbik-backend:local}
     build:
       context: .
     ports:
