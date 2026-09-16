@@ -17,6 +17,14 @@ def upgrade_application_schema(connection: Connection) -> None:
             )
         )
 
+    finding_columns = {
+        column["name"] for column in inspect(connection).get_columns("review_findings")
+    }
+    if "confidence_score" not in finding_columns:
+        connection.execute(
+            text("ALTER TABLE review_findings ADD COLUMN confidence_score FLOAT NOT NULL DEFAULT 0.0")
+        )
+
     foreign_keys = inspect(connection).get_foreign_keys("content_submissions")
     has_owner_foreign_key = any(
         key.get("referred_table") == "users" and key.get("constrained_columns") == ["owner_id"]

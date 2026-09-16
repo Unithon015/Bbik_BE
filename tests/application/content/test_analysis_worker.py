@@ -1,4 +1,5 @@
 import unittest
+from dataclasses import replace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.application.content.analysis_worker import run_analysis
@@ -23,6 +24,8 @@ class ContextWorkerTest(unittest.IsolatedAsyncioTestCase):
             signal_type="직접 공격 표현", reason="직접적인 공격 표현입니다.",
             excerpt="공격 표현", media_types=["text"],
         )
+        # risk_scorer 적용 후 confidence_score: HIGH(0.80) + R-04 boost(0.08) = 0.88
+        self.scored_general_finding = replace(self.general_finding, confidence_score=0.88)
         self.submission = ContentSubmission(
             title="검수 요청", caption_text="테스트 사건을 언급한 공격 표현",
             assets=[], analysis_runs=[AnalysisRun()],
@@ -89,7 +92,7 @@ class ContextWorkerTest(unittest.IsolatedAsyncioTestCase):
 
         search.assert_awaited_once()
         self.assertEqual(search.await_args.kwargs["incident_limit"], 3)
-        self.assertEqual(context.await_args.kwargs["provisional_findings"], [self.general_finding])
+        self.assertEqual(context.await_args.kwargs["provisional_findings"], [self.scored_general_finding])
         self.assertEqual(context.await_args.kwargs["incident_context"], [self.incident])
         self.assertEqual(service.complete.await_args.kwargs["findings"], [final_finding])
 
@@ -109,7 +112,7 @@ class ContextWorkerTest(unittest.IsolatedAsyncioTestCase):
         search.assert_awaited_once()
         self.assertEqual(search.await_args.kwargs["incident_limit"], 3)
         context.assert_not_awaited()
-        self.assertEqual(service.complete.await_args.kwargs["findings"], [self.general_finding])
+        self.assertEqual(service.complete.await_args.kwargs["findings"], [self.scored_general_finding])
 
     async def test_falls_back_to_general_findings_when_context_retrieval_fails(self) -> None:
         service, search, context = await self._run_worker(search_error=RuntimeError("retrieval unavailable"))
@@ -117,7 +120,7 @@ class ContextWorkerTest(unittest.IsolatedAsyncioTestCase):
         search.assert_awaited_once()
         self.assertEqual(search.await_args.kwargs["incident_limit"], 3)
         context.assert_not_awaited()
-        self.assertEqual(service.complete.await_args.kwargs["findings"], [self.general_finding])
+        self.assertEqual(service.complete.await_args.kwargs["findings"], [self.scored_general_finding])
         service.fail.assert_not_awaited()
 
     async def test_falls_back_to_general_findings_when_context_review_fails(self) -> None:
@@ -127,8 +130,8 @@ class ContextWorkerTest(unittest.IsolatedAsyncioTestCase):
 
         search.assert_awaited_once()
         context.assert_awaited_once()
-        self.assertEqual(context.await_args.kwargs["provisional_findings"], [self.general_finding])
-        self.assertEqual(service.complete.await_args.kwargs["findings"], [self.general_finding])
+        self.assertEqual(context.await_args.kwargs["provisional_findings"], [self.scored_general_finding])
+        self.assertEqual(service.complete.await_args.kwargs["findings"], [self.scored_general_finding])
         service.fail.assert_not_awaited()
 
     async def test_vector_failure_keeps_keyword_incident_for_context_review(self) -> None:

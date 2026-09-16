@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import ARRAY, JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import ARRAY, Float, JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .base import Base
 
@@ -199,6 +199,7 @@ class ReviewFindingModel(Base):
     start_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     end_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     media_types: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    confidence_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )

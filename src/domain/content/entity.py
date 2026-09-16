@@ -68,6 +68,7 @@ class ReviewFinding:
     evidences: list[FindingEvidence] = field(default_factory=list)
     media_types: list[str] = field(default_factory=list)
     status: FindingStatus = FindingStatus.PENDING
+    confidence_score: float = 0.0
     id: UUID = field(default_factory=uuid4)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
