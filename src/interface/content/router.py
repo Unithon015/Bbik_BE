@@ -56,7 +56,6 @@ def _service(db: AsyncSession = Depends(get_db)) -> ContentSubmissionService:
 async def create_content(
     background_tasks: BackgroundTasks,
     file: Annotated[UploadFile | None, File(description="이미지 파일 (선택)")] = None,
-    files: Annotated[list[UploadFile] | None, File()] = None,
     text: Annotated[str | None, Form()] = None,
     current_user_id: UUID = Depends(get_current_user_id),
     service: ContentSubmissionService = Depends(_service),
@@ -67,7 +66,7 @@ async def create_content(
             status_code=503,
             detail="Content analysis is temporarily unavailable",
         )
-    uploads = [item for item in [file, *(files or [])] if item and item.filename]
+    uploads = [file] if file and file.filename else []
     payloads = await _read_uploads(uploads)
     try:
         submission = await service.create(
@@ -203,6 +202,22 @@ async def update_finding_status(
         raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")
     try:
         await service.update_finding_status(submission_id, finding_id, body.status)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Finding not found")
+
+
+@router.delete("/{submission_id}/findings/{finding_id}", status_code=204)
+async def dismiss_finding(
+    submission_id: UUID,
+    finding_id: UUID,
+    service: ContentSubmissionService = Depends(_service),
+    owner_id: UUID = Depends(get_current_user_id),
+):
+    submission = await _get_submission(service, submission_id, owner_id)
+    if submission.owner_id != owner_id:
+        raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")
+    try:
+        await service.update_finding_status(submission_id, finding_id, FindingStatus.DISMISSED)
     except LookupError:
         raise HTTPException(status_code=404, detail="Finding not found")
 
