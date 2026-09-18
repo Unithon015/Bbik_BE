@@ -34,9 +34,14 @@ async def get_auth_context(
             audience=config.JWT_AUDIENCE,
             issuer=config.JWT_ISSUER,
         )
-        if payload.get("type") != "access":
-            raise ValueError("Unexpected token type")
+        token_type = payload.get("type")
         user_id = UUID(str(payload["sub"]))
+        if token_type == "demo":
+            if not config.DEMO_USER_ID or str(user_id) != config.DEMO_USER_ID:
+                raise _unauthorized()
+            return AuthContext(user_id=user_id, session_id=UUID(int=0))
+        if token_type != "access":
+            raise ValueError("Unexpected token type")
         session_id = UUID(str(payload["sid"]))
     except (JWTError, KeyError, TypeError, ValueError) as exc:
         raise _unauthorized() from exc
