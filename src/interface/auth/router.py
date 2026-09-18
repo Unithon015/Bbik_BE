@@ -12,6 +12,8 @@ from fastapi import (
 )
 from fastapi.responses import JSONResponse, RedirectResponse
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from src import config
 from src.application.auth.dto import (
     AuthenticatedUserResponse,
@@ -33,6 +35,7 @@ from src.application.auth.service import (
 )
 from src.domain.auth.entity import AuthResult
 from src.infrastructure.google.client import get_login_url
+from src.database import get_db
 from src.interface.auth.dependencies import get_auth_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -147,6 +150,47 @@ async def reset_password(
         await service.reset_password(body.token, body.new_password)
     except InvalidPasswordResetTokenError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/demo-token", response_model=TokenResponse)
+async def demo_token(
+    service: AuthenticationService = Depends(_service),
+    db: AsyncSession = Depends(get_db),
+) -> TokenResponse:
+    from datetime import datetime, timedelta, timezone
+    from uuid import UUID, uuid4
+    from jose import jwt as _jwt
+    from src.infrastructure.user.pg_repository import PostgresUserRepository
+
+    if not config.DEMO_USER_ID:
+        raise HTTPException(status_code=404, detail="데모 모드가 비활성화되어 있습니다.")
+    user = await PostgresUserRepository(db).find_by_id(UUID(config.DEMO_USER_ID))
+    if not user:
+        raise HTTPException(status_code=404, detail="데모 유저를 찾을 수 없습니다.")
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(hours=24)
+    token = _jwt.encode(
+        {
+            "sub": config.DEMO_USER_ID,
+            "type": "demo",
+            "iss": config.JWT_ISSUER,
+            "aud": config.JWT_AUDIENCE,
+            "iat": now,
+            "exp": expires_at,
+            "jti": str(uuid4()),
+        },
+        config.JWT_SECRET,
+        algorithm=config.JWT_ALGORITHM,
+    )
+    return TokenResponse(
+        access_token=token,
+        expires_in=24 * 3600,
+        user=AuthenticatedUserResponse(
+            id=user.id,
+            email=user.email,
+            name=user.name,
+        ),
+    )
 
 
 @router.get("/google/login")

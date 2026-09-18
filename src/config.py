@@ -35,6 +35,8 @@ S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "")
 MAX_UPLOAD_FILE_BYTES = 30 * 1024 * 1024
 MAX_UPLOAD_TOTAL_BYTES = 50 * 1024 * 1024
 MAX_UPLOAD_FILES = 5
+DEMO_USER_ID = os.getenv("DEMO_USER_ID", "")
+
 CORS_ALLOW_ORIGINS = [
     origin.strip()
     for origin in os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:5173").split(",")
