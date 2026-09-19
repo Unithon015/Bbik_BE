@@ -30,6 +30,7 @@ services:
       S3_BUCKET_NAME: ${S3_BUCKET_NAME}
       NAMU_WIKI_INITIAL_SYNC_ENABLED: ${NAMU_WIKI_INITIAL_SYNC_ENABLED:-true}
       NAMU_WIKI_2026_SYNC_ENABLED: ${NAMU_WIKI_2026_SYNC_ENABLED:-true}
+      DEMO_USER_ID: ${DEMO_USER_ID}
     restart: unless-stopped
     volumes:
       - content_uploads:/app/data/uploads
