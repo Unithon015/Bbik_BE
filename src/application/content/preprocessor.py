@@ -36,10 +36,13 @@ def preprocess_text(text: str | None) -> PreprocessResult:
 
     masked = text
     counts: dict[str, int] = {}
+    first_match: dict[str, str] = {}
     for pii_type, pattern in _PII_PATTERNS:
         matches = pattern.findall(masked)
         if matches:
             counts[pii_type] = len(matches)
+            # ponytail: 유형당 첫 매칭만 하이라이트, 전부 필요하면 매칭별 finding으로 분리
+            first_match[pii_type] = matches[0]
             masked = pattern.sub(f"[{pii_type.upper()}]", masked)
 
     findings = [
@@ -51,7 +54,7 @@ def preprocess_text(text: str | None) -> PreprocessResult:
                 f"텍스트에서 {count}건의 {_PII_SIGNAL[pii_type]}가 감지되어 마스킹 처리되었습니다. "
                 "게시 전 포함 여부를 확인하세요."
             ),
-            excerpt=None,
+            excerpt=first_match[pii_type],
             confidence_score=1.0,
         )
         for pii_type, count in counts.items()
